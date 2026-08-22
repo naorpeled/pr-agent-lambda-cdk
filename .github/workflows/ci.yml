@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # cdk synth needs no Docker and no AWS calls here, because the image is
+      # referenced from ECR rather than built. A fake account keeps it offline.
+      - name: Synth
+        run: npx cdk synth
+        env:
+          CDK_DEFAULT_ACCOUNT: '123456789012'
+          AWS_REGION: us-east-1
+
+      - name: Synth arm64 variant
+        run: npx cdk synth
+        env:
+          CDK_DEFAULT_ACCOUNT: '123456789012'
+          AWS_REGION: us-east-1
+          ARCH: arm64
+
+      - name: Shellcheck
+        run: shellcheck -e SC1091 scripts/*.sh

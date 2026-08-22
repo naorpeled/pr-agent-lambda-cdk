@@ -1,0 +1,29 @@
+{
+  "name": "pr-agent-lambda-cdk",
+  "version": "1.0.0",
+  "description": "Run PR-Agent, the open source AI code review agent, on AWS Lambda with Bedrock behind it. CDK stack plus the scripts to get the image into ECR.",
+  "license": "MIT",
+  "bin": {
+    "pr-agent-lambda-cdk": "bin/pr-agent-lambda-cdk.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "aws-cdk": "^2.1029.0",
+    "typescript": "~5.9.0",
+    "ts-node": "^10.9.2"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.266.0",
+    "constructs": "^10.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

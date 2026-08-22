@@ -1,0 +1,14 @@
+node_modules/
+*.js
+!jest.config.js
+*.d.ts
+*.js.map
+cdk.out/
+cdk.context.json
+.cdk.staging/
+
+# never commit these, they hold the GitHub App private key
+config.json
+*.pem
+*.private-key.pem
+.env
