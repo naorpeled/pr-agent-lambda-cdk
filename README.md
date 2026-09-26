@@ -100,6 +100,7 @@ Every one of these is an environment variable, usable with `make` or `cdk` direc
 | `STACK_NAME` | `PrAgentLambdaStack` | CloudFormation stack name. |
 | `MODEL` | `us.anthropic.claude-sonnet-4-5-...` | Primary Bedrock model. |
 | `FALLBACK_MODEL` | `us.anthropic.claude-haiku-4-5-...` | Tried when the primary raises. |
+| `CUSTOM_MODEL_MAX_TOKENS` | unset | Context size for models PR-Agent doesn't list itself, e.g. DeepSeek. |
 | `INFERENCE_REGIONS` | `us-east-1,us-east-2,us-west-2` | Regions the inference profile routes to. |
 | `MEMORY_SIZE` | `2048` | Lambda memory in MB. Memory buys CPU. |
 | `RESERVED_CONCURRENCY` | `5` | Caps concurrent reviews. Set empty to omit. |
@@ -121,6 +122,20 @@ aws bedrock get-inference-profile \
   --inference-profile-identifier us.anthropic.claude-sonnet-4-5-20250929-v1:0 \
   --query 'models[].modelArn' --region us-east-1
 ```
+
+### Running DeepSeek instead of Claude
+
+Anthropic models on Bedrock need the one-time First Time Use form. DeepSeek V3.2 doesn't: no use-case form and no Marketplace subscription. It's in-region only (no `us.` profile) and has a 164K context window.
+
+```bash
+make deploy \
+  MODEL=deepseek.v3.2 \
+  FALLBACK_MODEL=deepseek.v3.2 \
+  INFERENCE_REGIONS=us-east-1 \
+  CUSTOM_MODEL_MAX_TOKENS=164000
+```
+
+Set `FALLBACK_MODEL` too, since the default fallback is an Anthropic model and would hit the same form. `CUSTOM_MODEL_MAX_TOKENS` is required because PR-Agent refuses models missing from its own token table. `INFERENCE_REGIONS` is just the deploy region, since there's no cross-region profile.
 
 ## Things worth knowing
 

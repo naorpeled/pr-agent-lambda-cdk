@@ -32,6 +32,12 @@ export interface PrAgentLambdaStackProps extends cdk.StackProps {
   /** Model tried when the primary one raises. */
   readonly fallbackModel: string;
   /**
+   * Context size to assume for models PR-Agent doesn't list in its own token
+   * table, such as DeepSeek on Bedrock. Without it PR-Agent refuses to run
+   * those models. Still clamped by max_model_tokens.
+   */
+  readonly customModelMaxTokens?: number;
+  /**
    * Every region the inference profile can route to. Confirm with:
    *   aws bedrock get-inference-profile --inference-profile-identifier <model>
    */
@@ -77,6 +83,9 @@ export class PrAgentLambdaStack extends cdk.Stack {
         CONFIG__FALLBACK_MODELS: `["bedrock/${props.fallbackModel}"]`,
         // Default is 32000, which would waste most of a 200K context window.
         CONFIG__MAX_MODEL_TOKENS: '128000',
+        ...(props.customModelMaxTokens
+          ? { CONFIG__CUSTOM_MODEL_MAX_TOKENS: String(props.customModelMaxTokens) }
+          : {}),
         CONFIG__SECRET_PROVIDER: 'aws_secrets_manager',
         AWS_SECRETS_MANAGER__SECRET_ARN: config.secretArn,
         // Read straight from the process env by PR-Agent's model layer. On Lambda

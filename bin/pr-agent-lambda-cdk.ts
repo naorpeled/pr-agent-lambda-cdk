@@ -20,6 +20,11 @@ if (reserved !== undefined && reserved !== '' && Number.isNaN(Number(reserved)))
   throw new Error(`RESERVED_CONCURRENCY must be a number or empty, got "${reserved}"`);
 }
 
+const customMax = process.env.CUSTOM_MODEL_MAX_TOKENS;
+if (customMax !== undefined && customMax !== '' && !(Number(customMax) > 0)) {
+  throw new Error(`CUSTOM_MODEL_MAX_TOKENS must be a positive number, got "${customMax}"`);
+}
+
 const app = new cdk.App();
 
 new PrAgentLambdaStack(app, process.env.STACK_NAME ?? 'PrAgentLambdaStack', {
@@ -35,6 +40,7 @@ new PrAgentLambdaStack(app, process.env.STACK_NAME ?? 'PrAgentLambdaStack', {
 
   model: process.env.MODEL ?? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
   fallbackModel: process.env.FALLBACK_MODEL ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+  customModelMaxTokens: customMax ? Number(customMax) : undefined,
   inferenceRegions: (process.env.INFERENCE_REGIONS ?? 'us-east-1,us-east-2,us-west-2')
     .split(',')
     .map((r) => r.trim())
