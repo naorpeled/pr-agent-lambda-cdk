@@ -10,7 +10,7 @@ You need AWS CLI v2, Docker, Node 20+, `jq`, `openssl`, and Bedrock access to yo
 
 1. Create a GitHub App (Settings, Developer settings, GitHub Apps):
    - Permissions: Pull requests and Issues read and write, Contents and Metadata read-only
-   - Events: Pull request, Issue comment
+   - Events: Pull request, Pull request review, Pull request review comment, Issue comment
    - Webhook URL `https://example.com` for now, and a secret from `openssl rand -hex 32`
 
    Generate a private key, note the App ID, and install the App on your repos.

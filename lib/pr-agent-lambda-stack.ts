@@ -109,9 +109,9 @@ export interface PrAgentLambdaStackProps extends cdk.StackProps {
   /** Model tried when the primary one raises. */
   readonly fallbackModel: string;
   /**
-   * Context size to assume for models PR-Agent doesn't list in its own token
-   * table, such as DeepSeek on Bedrock. Without it PR-Agent refuses to run
-   * those models. Still clamped by max_model_tokens.
+   * Context size to assume for a model that neither PR-Agent's token table nor
+   * LiteLLM knows. Since 0.45.0 PR-Agent falls back to LiteLLM, so most models,
+   * DeepSeek on Bedrock included, don't need it. Still clamped by max_model_tokens.
    */
   readonly customModelMaxTokens?: number;
   /**
@@ -145,8 +145,9 @@ export class PrAgentLambdaStack extends cdk.Stack {
       code: lambda.DockerImageCode.fromEcr(repo, { tagOrDigest: props.imageTag }),
       architecture: props.architecture,
       memorySize: props.memorySize,
-      // The review runs to completion inside the invocation. See the README.
-      timeout: cdk.Duration.minutes(5),
+      // The review runs to completion inside the invocation. Large PRs and slow
+      // fallback chains can take minutes, so use Lambda's maximum.
+      timeout: cdk.Duration.minutes(15),
       description: `PR-Agent ${props.gitProvider} reviews (${props.imageTag})`,
       reservedConcurrentExecutions: props.reservedConcurrency,
       // Lambda log groups never expire by default.
