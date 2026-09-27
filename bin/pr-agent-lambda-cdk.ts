@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import { PrAgentLambdaStack } from '../lib/pr-agent-lambda-stack';
+import { GitProvider, PROVIDERS, PrAgentLambdaStack } from '../lib/pr-agent-lambda-stack';
 
 /**
  * Everything here is overridable by environment variable so the Makefile can
@@ -51,6 +51,64 @@ if (!process.env.IMAGE_TAG && pushed.ARCH && process.env.ARCH && process.env.ARC
   );
 }
 
+// The image flavor decides which webhook handler runs, so the provider follows
+// the image unless GIT_PROVIDER says otherwise, and a disagreement is refused:
+// a GitLab image behind a GitHub config deploys fine and then 404s every webhook.
+const providerNames = Object.keys(PROVIDERS) as GitProvider[];
+const flavorProvider = providerNames.find((p) => imageTag.endsWith(`-${p}_lambda`));
+const gitProvider = (process.env.GIT_PROVIDER || flavorProvider || 'github').toLowerCase() as GitProvider;
+if (!providerNames.includes(gitProvider)) {
+  throw new Error(`GIT_PROVIDER must be one of ${providerNames.join(', ')}; got "${gitProvider}"`);
+}
+if (flavorProvider && flavorProvider !== gitProvider) {
+  throw new Error(
+    `GIT_PROVIDER=${gitProvider} but the image ${imageTag} runs the ${flavorProvider} handler. ` +
+      `Re-run \`make image GIT_PROVIDER=${gitProvider}\`.`,
+  );
+}
+
+// Minimum PR-Agent versions, where older ones are unsafe or untested here.
+// GitLab: before 0.46.0, PR-Agent looked up GitLab's webhook token as a Secrets
+// Manager secret name and logged the name (the token itself) when the lookup
+// failed, which with this stack is every webhook.
+// Gitea, Bitbucket Data Center, Azure DevOps: wrapped by lambda/provider, which
+// was tested against 0.46.0's webhook servers.
+const MIN_VERSION: Partial<Record<GitProvider, number[]>> = {
+  gitlab: [0, 46, 0],
+  gitea: [0, 46, 0],
+  bitbucket_server: [0, 46, 0],
+  azure_devops: [0, 46, 0],
+};
+const minVersion = MIN_VERSION[gitProvider];
+const tagVersion = imageTag.match(/^(\d+)\.(\d+)\.(\d+)-/)?.slice(1).map(Number);
+if (minVersion && tagVersion) {
+  const differs = tagVersion.findIndex((n, i) => n !== minVersion[i]);
+  if (differs !== -1 && tagVersion[differs] < minVersion[differs]) {
+    throw new Error(
+      `${gitProvider} needs PR-Agent ${minVersion.join('.')} or newer, got ${tagVersion.join('.')}. ` +
+        `Run \`make image GIT_PROVIDER=${gitProvider}\` for the newest release.`,
+    );
+  }
+}
+
+const providerUrl = process.env.PROVIDER_URL || undefined;
+const urlSetting = PROVIDERS[gitProvider].urlSetting;
+if (urlSetting?.required && !providerUrl) {
+  throw new Error(`${gitProvider} needs PROVIDER_URL, e.g. PROVIDER_URL=${urlSetting.example}`);
+}
+if (providerUrl && !urlSetting) {
+  throw new Error(`PROVIDER_URL doesn't apply to ${gitProvider}; leave it unset.`);
+}
+
+// Off only for GitHub by default. Every review outlasts a webhook timeout, and
+// providers count timeouts as failed deliveries; GitLab.com disables webhooks
+// that keep failing. GitHub just shows them as timed out.
+const asyncSetting = (process.env.ASYNC_REVIEWS ?? '').toLowerCase();
+if (!['', 'true', 'false'].includes(asyncSetting)) {
+  throw new Error(`ASYNC_REVIEWS must be "true" or "false", got "${process.env.ASYNC_REVIEWS}"`);
+}
+const asyncReviews = asyncSetting === '' ? gitProvider !== 'github' : asyncSetting === 'true';
+
 const reserved = process.env.RESERVED_CONCURRENCY;
 if (reserved !== undefined && reserved !== '' && Number.isNaN(Number(reserved))) {
   throw new Error(`RESERVED_CONCURRENCY must be a number or empty, got "${reserved}"`);
@@ -71,6 +129,9 @@ new PrAgentLambdaStack(app, process.env.STACK_NAME ?? 'PrAgentLambdaStack', {
   ecrRepositoryName: process.env.ECR_REPO ?? 'pr-agent',
   imageTag,
   secretName: process.env.SECRET_NAME ?? 'pr-agent/config',
+  gitProvider,
+  providerUrl,
+  asyncReviews,
 
   architecture: arch === 'arm64' ? lambda.Architecture.ARM_64 : lambda.Architecture.X86_64,
 
@@ -86,5 +147,5 @@ new PrAgentLambdaStack(app, process.env.STACK_NAME ?? 'PrAgentLambdaStack', {
   reservedConcurrency:
     reserved === '' || reserved === 'none' ? undefined : Number(reserved ?? 5),
 
-  description: 'PR-Agent AI code review on Lambda, behind a Function URL, with Bedrock',
+  description: `PR-Agent AI code review for ${gitProvider} on Lambda, behind a Function URL, with Bedrock`,
 });

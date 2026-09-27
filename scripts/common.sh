@@ -8,7 +8,21 @@ REGION="${REGION:-us-east-1}"
 ECR_REPO="${ECR_REPO:-pr-agent}"
 UPSTREAM_IMAGE="${UPSTREAM_IMAGE:-pragent/pr-agent}"
 PR_AGENT_VERSION="${PR_AGENT_VERSION:-latest}"
-LAMBDA_FLAVOR="${LAMBDA_FLAVOR:-github_lambda}"
+GIT_PROVIDER="${GIT_PROVIDER:-github}"
+case "$GIT_PROVIDER" in
+  github|gitlab|gitea|bitbucket_server|azure_devops) ;;
+  *) printf 'GIT_PROVIDER must be github, gitlab, gitea, bitbucket_server or azure_devops, got "%s"\n' "$GIT_PROVIDER" >&2; exit 1 ;;
+esac
+
+# The tag in your ECR, e.g. 0.46.0-gitea_lambda. Deploy reads the provider from it.
+LAMBDA_FLAVOR="${GIT_PROVIDER}_lambda"
+# PR-Agent publishes Lambda images for GitHub and GitLab only. The other
+# providers are built on top of the GitHub one (see lambda/provider).
+# shellcheck disable=SC2034  # WRAPPED is read by the scripts that source this
+case "$GIT_PROVIDER" in
+  github|gitlab) UPSTREAM_FLAVOR="$LAMBDA_FLAVOR"; WRAPPED=false ;;
+  *)             UPSTREAM_FLAVOR="github_lambda"; WRAPPED=true ;;
+esac
 SECRET_NAME="${SECRET_NAME:-pr-agent/config}"
 STACK_NAME="${STACK_NAME:-PrAgentLambdaStack}"
 
@@ -38,14 +52,14 @@ stack_output() {
     --output text --region "$REGION" 2>/dev/null || true
 }
 
-# Newest released version that has a Lambda image for LAMBDA_FLAVOR, e.g. 0.46.0.
+# Newest released version that has a Lambda image for UPSTREAM_FLAVOR, e.g. 0.46.0.
 # Resolved to a number rather than using the rolling tag on purpose: a rolling
 # tag never changes in the CloudFormation template, so redeploying after a new
 # release would silently keep the old image.
 latest_version() {
   need curl
   need jq
-  local url="https://hub.docker.com/v2/repositories/${UPSTREAM_IMAGE}/tags?page_size=100&name=-${LAMBDA_FLAVOR}"
+  local url="https://hub.docker.com/v2/repositories/${UPSTREAM_IMAGE}/tags?page_size=100&name=-${UPSTREAM_FLAVOR}"
   local names="" page=0
   while [ -n "$url" ] && [ "$url" != "null" ] && [ "$page" -lt 5 ]; do
     local body
@@ -55,24 +69,20 @@ latest_version() {
     page=$((page + 1))
   done
   local version
-  version="$( { grep -E "^[0-9]+\.[0-9]+\.[0-9]+-${LAMBDA_FLAVOR}\$" <<<"$names" || true; } \
-    | sed "s/-${LAMBDA_FLAVOR}\$//" | sort -V | tail -n 1)"
-  [ -n "$version" ] || die "no released ${LAMBDA_FLAVOR} images found on Docker Hub for ${UPSTREAM_IMAGE}"
+  version="$( { grep -E "^[0-9]+\.[0-9]+\.[0-9]+-${UPSTREAM_FLAVOR}\$" <<<"$names" || true; } \
+    | sed "s/-${UPSTREAM_FLAVOR}\$//" | sort -V | tail -n 1)"
+  [ -n "$version" ] || die "no released ${UPSTREAM_FLAVOR} images found on Docker Hub for ${UPSTREAM_IMAGE}"
   printf '%s\n' "$version"
 }
 
-# The image tag to pull and push: IMAGE_TAG if set, else PR_AGENT_VERSION with
-# "latest" resolved to a concrete release.
-resolve_image_tag() {
-  if [ -n "${IMAGE_TAG:-}" ]; then
-    printf '%s\n' "$IMAGE_TAG"
-    return
+# The PR-Agent release to use: PR_AGENT_VERSION, with "latest" resolved to a
+# concrete version number.
+resolve_version() {
+  if [ "$PR_AGENT_VERSION" = "latest" ]; then
+    latest_version
+  else
+    printf '%s\n' "$PR_AGENT_VERSION"
   fi
-  local version="$PR_AGENT_VERSION"
-  if [ "$version" = "latest" ]; then
-    version="$(latest_version)"
-  fi
-  printf '%s-%s\n' "$version" "$LAMBDA_FLAVOR"
 }
 
 # The tag to deploy: IMAGE_TAG if set, else whatever push-image.sh recorded.

@@ -15,3 +15,9 @@ config.json
 
 # written by make image, local to your checkout
 .pushed-image
+
+# Python bytecode
+__pycache__/
+
+# local settings, see settings.mk.example
+settings.mk

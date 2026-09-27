@@ -1,6 +1,10 @@
 # PR-Agent on AWS Lambda.
 # Every variable here can be overridden: make deploy REGION=eu-west-1
 
+# Your own settings, kept between runs: copy settings.mk.example to settings.mk.
+# Anything passed on the command line still wins.
+-include settings.mk
+
 REGION           ?= us-east-1
 ECR_REPO         ?= pr-agent
 SECRET_NAME      ?= pr-agent/config
@@ -8,19 +12,25 @@ STACK_NAME       ?= PrAgentLambdaStack
 # "latest" resolves to the newest release number when `make image` runs, e.g.
 # 0.46.0, and that exact tag is what gets deployed. Pin with PR_AGENT_VERSION=0.45.0.
 PR_AGENT_VERSION ?= latest
-# github_lambda or gitlab_lambda
-LAMBDA_FLAVOR    ?= github_lambda
 
-export REGION ECR_REPO SECRET_NAME STACK_NAME PR_AGENT_VERSION LAMBDA_FLAVOR
+export REGION ECR_REPO SECRET_NAME STACK_NAME PR_AGENT_VERSION
 export AWS_REGION = $(REGION)
 
-# Left unset on purpose: `make image` records the tag and architecture it pushed
-# in .pushed-image, and deploy reads them from there. Set either one to override.
+# Left unset on purpose. `make image` records the tag and architecture it pushed
+# in .pushed-image, and deploy reads them from there; the provider follows the
+# image. Set any of them to override:
+#   GIT_PROVIDER   github (default), gitlab, gitea, bitbucket_server, azure_devops
+#   PROVIDER_URL   server or organization URL, where the provider needs one
+#   ASYNC_REVIEWS  true or false; defaults to false for github, true otherwise
+#   IMAGE_TAG, ARCH
 ifdef IMAGE_TAG
 export IMAGE_TAG
 endif
 ifdef ARCH
 export ARCH
+endif
+ifdef GIT_PROVIDER
+export GIT_PROVIDER
 endif
 
 CDK = npx cdk
@@ -32,11 +42,14 @@ help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-	@echo "  Typical first run:"
+	@echo "  Typical first run (GitHub):"
 	@echo "    export WEBHOOK_SECRET=\$$(openssl rand -hex 32)"
 	@echo "    make secret APP_ID=123456 PEM=./my-app.private-key.pem"
 	@echo "    make image"
 	@echo "    make bootstrap deploy smoke"
+	@echo ""
+	@echo "  Other providers: pass GIT_PROVIDER to secret and image, and TOKEN"
+	@echo "  instead of APP_ID and PEM. Deploy follows the image. See the README."
 
 install: node_modules ## Install node dependencies (the CDK targets do this for you)
 
@@ -53,10 +66,10 @@ typecheck: node_modules ## Typecheck the CDK app without emitting
 synth: node_modules ## Synthesize CloudFormation (offline; needs `make image` first, or IMAGE_TAG)
 	$(CDK) synth
 
-image: ## Copy a PR-Agent Lambda image into your ECR (newest release by default)
+image: ## Get a PR-Agent Lambda image into your ECR (newest release by default)
 	./scripts/push-image.sh
 
-secret: ## Create/update the GitHub App credentials secret (needs APP_ID, PEM, WEBHOOK_SECRET)
+secret: ## Create/update the provider credentials secret (see README for the inputs)
 	./scripts/create-secret.sh
 
 bootstrap: node_modules ## Bootstrap CDK in this account and region (once)

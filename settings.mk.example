@@ -1,0 +1,20 @@
+# Copy to settings.mk (gitignored) to keep your choices between `make` runs,
+# so `make image && make deploy` doesn't fall back to the defaults.
+# Uncomment what you need. `export` is what passes a value on to deploy.
+
+# export REGION = us-east-1
+
+# DeepSeek instead of Claude (no Bedrock use-case form needed)
+# export MODEL = deepseek.v3.2
+# export FALLBACK_MODEL = deepseek.v3.2
+# export INFERENCE_REGIONS = us-east-1
+
+# Reply to webhooks immediately and review in the background
+# export ASYNC_REVIEWS = true
+
+# Server or organization URL: self-managed GitLab or Gitea (optional),
+# Bitbucket Data Center or the Azure DevOps organization (required)
+# export PROVIDER_URL = https://git.example.com
+
+# New accounts that fail to deploy on UnreservedConcurrentExecution
+# export RESERVED_CONCURRENCY =

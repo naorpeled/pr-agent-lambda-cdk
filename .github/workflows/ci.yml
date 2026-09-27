@@ -42,5 +42,32 @@ jobs:
           IMAGE_TAG: 0.0.0-ci-github_lambda
           ARCH: arm64
 
+      - name: Synth GitHub with async reviews
+        run: npx cdk synth
+        env:
+          CDK_DEFAULT_ACCOUNT: '123456789012'
+          AWS_REGION: us-east-1
+          IMAGE_TAG: 0.0.0-ci-github_lambda
+          ASYNC_REVIEWS: 'true'
+
+      # Non-GitHub providers refuse images older than 0.46.0, so the stand-in
+      # tags have to be new enough. They're async by default.
+      - name: Synth every other provider
+        env:
+          CDK_DEFAULT_ACCOUNT: '123456789012'
+          AWS_REGION: us-east-1
+        run: |
+          IMAGE_TAG=99.0.0-ci-gitlab_lambda PROVIDER_URL=https://gitlab.example.com npx cdk synth > /dev/null
+          IMAGE_TAG=99.0.0-ci-gitea_lambda npx cdk synth > /dev/null
+          IMAGE_TAG=99.0.0-ci-bitbucket_server_lambda PROVIDER_URL=https://bitbucket.example.com npx cdk synth > /dev/null
+          IMAGE_TAG=99.0.0-ci-azure_devops_lambda PROVIDER_URL=https://dev.azure.com/example npx cdk synth > /dev/null
+
+      - name: Build the provider wrapper image
+        run: |
+          docker buildx build --provenance=false --load \
+            --build-arg BASE_IMAGE=pragent/pr-agent:github_lambda \
+            --build-arg PR_AGENT_SERVER=gitea \
+            --tag provider-wrapper-check lambda/provider
+
       - name: Shellcheck
         run: shellcheck -e SC1091 scripts/*.sh
