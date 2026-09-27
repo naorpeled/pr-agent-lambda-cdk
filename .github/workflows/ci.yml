@@ -25,18 +25,21 @@ jobs:
         run: npx tsc --noEmit
 
       # cdk synth needs no Docker and no AWS calls here, because the image is
-      # referenced from ECR rather than built. A fake account keeps it offline.
+      # referenced from ECR rather than built. A fake account and a stand-in
+      # tag keep it offline; a real deploy reads the tag `make image` recorded.
       - name: Synth
         run: npx cdk synth
         env:
           CDK_DEFAULT_ACCOUNT: '123456789012'
           AWS_REGION: us-east-1
+          IMAGE_TAG: 0.0.0-ci-github_lambda
 
       - name: Synth arm64 variant
         run: npx cdk synth
         env:
           CDK_DEFAULT_ACCOUNT: '123456789012'
           AWS_REGION: us-east-1
+          IMAGE_TAG: 0.0.0-ci-github_lambda
           ARCH: arm64
 
       - name: Shellcheck

@@ -1,23 +1,34 @@
 #!/usr/bin/env bash
 #
-# Copies a published PR-Agent Lambda image from Docker Hub into your own ECR.
+# Copies a published PR-Agent Lambda image from Docker Hub into your own ECR,
+# and records what it pushed in .pushed-image so `make deploy` uses exactly that.
 #
 # Lambda only pulls from ECR, and it rejects multi-architecture images. The
-# published tag is a manifest covering both amd64 and arm64, so the --platform
+# published tags are manifests covering both amd64 and arm64, so the --platform
 # on the pull is what makes this work.
 #
-#   ./scripts/push-image.sh
-#   ARCH=arm64 ./scripts/push-image.sh
-#   IMAGE_TAG=0.41.0-gitlab_lambda ./scripts/push-image.sh
+#   ./scripts/push-image.sh                          # newest release, amd64
+#   ARCH=arm64 ./scripts/push-image.sh               # 20% cheaper per GB-second
+#   PR_AGENT_VERSION=0.45.0 ./scripts/push-image.sh  # pin a release
+#   LAMBDA_FLAVOR=gitlab_lambda ./scripts/push-image.sh
+#   IMAGE_TAG=0.45.0-github_lambda ./scripts/push-image.sh  # exact tag
 
 source "$(dirname "$0")/common.sh"
+
+ARCH="${ARCH:-amd64}"
+case "$ARCH" in amd64|arm64) ;; *) die "ARCH must be amd64 or arm64, got \"$ARCH\"" ;; esac
 
 need docker
 need aws
 
+if [ -z "${IMAGE_TAG:-}" ] && [ "$PR_AGENT_VERSION" = "latest" ]; then
+  info "looking up the newest ${LAMBDA_FLAVOR} release on Docker Hub"
+fi
+TAG="$(resolve_image_tag)"
+
 ACCOUNT="$(account_id)"
 REGISTRY="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
-TARGET="${REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+TARGET="${REGISTRY}/${ECR_REPO}:${TAG}"
 
 info "creating ECR repository ${ECR_REPO} in ${REGION} (ok if it already exists)"
 aws ecr create-repository \
@@ -30,11 +41,11 @@ info "logging docker in to ${REGISTRY}"
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$REGISTRY"
 
-info "pulling ${UPSTREAM_IMAGE}:${IMAGE_TAG} for linux/${ARCH}"
-docker pull --platform "linux/${ARCH}" "${UPSTREAM_IMAGE}:${IMAGE_TAG}"
+info "pulling ${UPSTREAM_IMAGE}:${TAG} for linux/${ARCH}"
+docker pull --platform "linux/${ARCH}" "${UPSTREAM_IMAGE}:${TAG}"
 
 info "tagging and pushing ${TARGET}"
-docker tag "${UPSTREAM_IMAGE}:${IMAGE_TAG}" "$TARGET"
+docker tag "${UPSTREAM_IMAGE}:${TAG}" "$TARGET"
 docker push "$TARGET"
 
 # A single-platform image is a plain manifest with a "layers" array. If the
@@ -45,9 +56,10 @@ if docker manifest inspect "$TARGET" 2>/dev/null | grep -q '"manifests"'; then
   warn "that tag is an image index, not a single-platform image. Lambda will reject it."
   warn "if you use Docker Desktop, turn off the containerd image store and re-run,"
   warn "or copy it with a tool that preserves one platform, e.g."
-  warn "  crane copy --platform linux/${ARCH} ${UPSTREAM_IMAGE}:${IMAGE_TAG} ${TARGET}"
+  warn "  crane copy --platform linux/${ARCH} ${UPSTREAM_IMAGE}:${TAG} ${TARGET}"
   exit 1
 fi
 
+printf 'IMAGE_TAG=%s\nARCH=%s\n' "$TAG" "$ARCH" > "$PUSHED_IMAGE_FILE"
 info "done. ${TARGET}"
-info "set ARCH=${ARCH} when you deploy so the function architecture matches."
+info "recorded in .pushed-image, so \`make deploy\` will use ${TAG} on ${ARCH}"

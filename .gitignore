@@ -12,3 +12,6 @@ config.json
 *.pem
 *.private-key.pem
 .env
+
+# written by make image, local to your checkout
+.pushed-image

@@ -6,8 +6,9 @@
 # The secret has to live in the function's region. PR-Agent's secrets provider
 # builds its boto3 client without an explicit region, so a secret somewhere else
 # fails the lookup, and the Lambda handler swallows that and falls back to
-# environment variables. You end up with no credentials and, worse, no webhook
-# signature verification, announced only by an error line in the logs.
+# environment variables. You end up with no credentials, announced only by an
+# error line in the logs. (Before PR-Agent v0.44.0 it also meant no webhook
+# signature verification. Since then, webhooks are rejected instead.)
 #
 #   APP_ID=123456 PEM=./my-app.private-key.pem ./scripts/create-secret.sh
 #
@@ -25,8 +26,9 @@ need jq
 
 [ -f "$PEM" ] || die "no such file: $PEM"
 
-# An empty webhook secret is worse than no secret at all: PR-Agent gates
-# signature verification on a truthy value, so "" leaves the endpoint open.
+# PR-Agent treats "" as no secret. Since v0.44.0 that rejects every webhook
+# with a 403; before it, signature verification was skipped and the endpoint
+# was open. Either way, refuse it here.
 [ -n "${WEBHOOK_SECRET//[[:space:]]/}" ] || die "WEBHOOK_SECRET is empty"
 
 TMP="$(mktemp -t pr-agent-config.XXXXXX)"

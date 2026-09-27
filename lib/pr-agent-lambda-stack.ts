@@ -18,7 +18,7 @@ function stripGeoPrefix(modelId: string): string {
 export interface PrAgentLambdaStackProps extends cdk.StackProps {
   /** ECR repository the image was pushed to. See scripts/push-image.sh. */
   readonly ecrRepositoryName: string;
-  /** Image tag in that repository, e.g. "0.41.0-github_lambda". */
+  /** Image tag in that repository, e.g. "0.46.0-github_lambda". */
   readonly imageTag: string;
   /** Secrets Manager secret holding the GitHub App credentials. */
   readonly secretName: string;
@@ -127,7 +127,8 @@ export class PrAgentLambdaStack extends cdk.Stack {
     );
 
     // GitHub can't sign requests with SigV4, and PR-Agent verifies the webhook
-    // HMAC itself. The webhook secret is what keeps this endpoint from being open.
+    // HMAC itself, rejecting unsigned requests (and, since v0.44.0, rejecting
+    // everything when no webhook secret is configured).
     this.functionUrl = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
 
     new cdk.CfnOutput(this, 'FunctionUrl', {

@@ -54,16 +54,19 @@ export WEBHOOK_SECRET=<the secret you set in step 1>
 make secret APP_ID=123456 PEM=./my-app.private-key.pem
 ```
 
-This builds PR-Agent's flat dotted-key JSON and puts it in Secrets Manager **in the same region as everything else**, which matters more than it looks. PR-Agent's secrets provider builds its boto3 client without an explicit region, so a secret anywhere else fails the lookup, and the Lambda handler swallows that and falls back to environment variables. You end up with no App credentials and no webhook signature verification, announced only by a `Failed to get secrets from AWS Secrets Manager` line in the logs. `make smoke` checks for exactly that.
+This builds PR-Agent's flat dotted-key JSON and puts it in Secrets Manager **in the same region as everything else**, which matters more than it looks. PR-Agent's secrets provider builds its boto3 client without an explicit region, so a secret anywhere else fails the lookup, and the Lambda handler swallows that and falls back to environment variables. You end up with no App credentials, announced only by a `Failed to get secrets from AWS Secrets Manager` line in the logs. `make smoke` checks for exactly that.
 
-The script refuses an empty `WEBHOOK_SECRET`, because PR-Agent gates signature verification on a truthy value and `""` would leave your endpoint open to anyone who finds the URL.
+The script refuses an empty `WEBHOOK_SECRET`. Since v0.44.0, PR-Agent rejects every webhook with a 403 when no secret is configured, so an empty one breaks reviews outright. Before v0.44.0 it skipped signature verification instead, which left the endpoint open to anyone who found the URL.
 
 ### 3. Copy the image into ECR
 
 ```bash
-make image              # amd64
-make image ARCH=arm64   # 20% cheaper per GB-second
+make image                          # newest release, amd64
+make image ARCH=arm64               # 20% cheaper per GB-second
+make image PR_AGENT_VERSION=0.45.0  # pin a release
 ```
+
+By default this looks up the newest PR-Agent release on Docker Hub and copies that exact version, e.g. `0.46.0-github_lambda`, never the rolling `github_lambda` tag. A rolling tag would never change in the CloudFormation template, so a later `make deploy` would see nothing to update and keep running the old image. The tag and architecture it pushed are recorded in `.pushed-image`, which `make deploy` reads, so what gets deployed is always what was pushed.
 
 Lambda only pulls from ECR, and it rejects multi-architecture images. The published tag is a manifest covering both architectures, so the script pulls one platform explicitly and then verifies what landed is not an index. If you have Docker Desktop's containerd image store enabled it can push the whole index back, and the script will tell you.
 
@@ -74,7 +77,7 @@ make bootstrap   # once per account and region
 make deploy
 ```
 
-There's no Docker build in the deploy path, so `cdk synth` runs entirely offline and `cdk deploy` is just CloudFormation.
+`make deploy` first checks that the recorded image is actually in ECR, so a missing image fails in seconds instead of a few minutes into CloudFormation. There's no Docker build in the deploy path: `cdk synth` runs offline and `cdk deploy` is just CloudFormation.
 
 ### 5. Check it, then wire up the webhook
 
@@ -93,8 +96,10 @@ Every one of these is an environment variable, usable with `make` or `cdk` direc
 | Variable | Default | What it does |
 |---|---|---|
 | `REGION` | `us-east-1` | Region for the secret, ECR repo, function and profile. Keep them together. |
-| `ARCH` | `amd64` | `amd64` or `arm64`. Must match what you pulled in `make image`. |
-| `IMAGE_TAG` | `0.41.0-github_lambda` | Tag to copy. Use `gitlab_lambda` for GitLab. Pin a version. |
+| `PR_AGENT_VERSION` | `latest` | Release to copy in `make image`. `latest` resolves to the newest version number. |
+| `LAMBDA_FLAVOR` | `github_lambda` | `github_lambda` or `gitlab_lambda`. |
+| `ARCH` | `amd64`, then whatever `make image` recorded | `amd64` or `arm64`. Deploy refuses an ARCH that doesn't match the pushed image. |
+| `IMAGE_TAG` | from `.pushed-image` | Exact tag, overriding both of the above. For deploying an image someone else pushed. |
 | `ECR_REPO` | `pr-agent` | ECR repository name. |
 | `SECRET_NAME` | `pr-agent/config` | Secrets Manager secret name. |
 | `STACK_NAME` | `PrAgentLambdaStack` | CloudFormation stack name. |
@@ -135,7 +140,16 @@ make deploy \
   CUSTOM_MODEL_MAX_TOKENS=164000
 ```
 
-Set `FALLBACK_MODEL` too, since the default fallback is an Anthropic model and would hit the same form. `CUSTOM_MODEL_MAX_TOKENS` is required because PR-Agent refuses models missing from its own token table. `INFERENCE_REGIONS` is just the deploy region, since there's no cross-region profile.
+Set `FALLBACK_MODEL` too, since the default fallback is an Anthropic model and would hit the same form. `CUSTOM_MODEL_MAX_TOKENS` is only needed on PR-Agent releases before v0.45.0, which refuse models missing from their own token table. Newer releases ask LiteLLM for the context size. `INFERENCE_REGIONS` is just the deploy region, since there's no cross-region profile.
+
+## Upgrading PR-Agent
+
+```bash
+make image    # copies the newest release, if there's a newer one
+make deploy
+```
+
+A new release is a new tag, so CloudFormation sees the change and updates the function. To roll back, `make image PR_AGENT_VERSION=<previous>` then `make deploy`.
 
 ## Things worth knowing
 
@@ -171,7 +185,7 @@ rm -f config.json *.pem
 ## Development
 
 ```bash
-make check   # typecheck, synth, shellcheck
+make check   # typecheck, synth, shellcheck (uses a stand-in tag, no image needed)
 ```
 
 CI runs the same thing on every push and PR, including an arm64 synth, so the repo can't drift into a state that doesn't compile.

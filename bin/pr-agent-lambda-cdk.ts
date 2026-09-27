@@ -1,18 +1,54 @@
 #!/usr/bin/env node
+import * as fs from 'fs';
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { PrAgentLambdaStack } from '../lib/pr-agent-lambda-stack';
 
 /**
  * Everything here is overridable by environment variable so the Makefile can
- * drive it. The defaults are the ones from the blog post.
+ * drive it. The model defaults are the ones from the blog post.
  */
 const region = process.env.AWS_REGION ?? process.env.CDK_DEFAULT_REGION ?? 'us-east-1';
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 
-const arch = (process.env.ARCH ?? 'amd64').toLowerCase();
+/**
+ * `make image` records the tag and architecture it pushed in .pushed-image.
+ * Reading them back means the deployed image is exactly the pushed one, and
+ * "latest" is frozen to a real version number at push time.
+ */
+function readPushedImage(): Record<string, string> {
+  const file = path.join(__dirname, '..', '.pushed-image');
+  if (!fs.existsSync(file)) return {};
+  return Object.fromEntries(
+    fs
+      .readFileSync(file, 'utf8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.includes('='))
+      .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
+  );
+}
+const pushed = readPushedImage();
+
+const imageTag = process.env.IMAGE_TAG || pushed.IMAGE_TAG;
+if (!imageTag) {
+  throw new Error(
+    'No image to deploy yet. Run `make image` first (it records the tag it pushed in .pushed-image), or set IMAGE_TAG.',
+  );
+}
+
+const arch = (process.env.ARCH || pushed.ARCH || 'amd64').toLowerCase();
 if (arch !== 'amd64' && arch !== 'arm64') {
   throw new Error(`ARCH must be "amd64" or "arm64", got "${arch}"`);
+}
+// A function whose architecture doesn't match its image deploys fine and then
+// fails every invocation with an exec format error, so refuse it up front.
+if (!process.env.IMAGE_TAG && pushed.ARCH && process.env.ARCH && process.env.ARCH !== pushed.ARCH) {
+  throw new Error(
+    `ARCH=${process.env.ARCH} but the image in ECR was pushed for ${pushed.ARCH}. ` +
+      `Re-run \`make image ARCH=${process.env.ARCH}\`, or drop ARCH to use ${pushed.ARCH}.`,
+  );
 }
 
 const reserved = process.env.RESERVED_CONCURRENCY;
@@ -33,7 +69,7 @@ new PrAgentLambdaStack(app, process.env.STACK_NAME ?? 'PrAgentLambdaStack', {
   env: { account, region },
 
   ecrRepositoryName: process.env.ECR_REPO ?? 'pr-agent',
-  imageTag: process.env.IMAGE_TAG ?? '0.41.0-github_lambda',
+  imageTag,
   secretName: process.env.SECRET_NAME ?? 'pr-agent/config',
 
   architecture: arch === 'arm64' ? lambda.Architecture.ARM_64 : lambda.Architecture.X86_64,
